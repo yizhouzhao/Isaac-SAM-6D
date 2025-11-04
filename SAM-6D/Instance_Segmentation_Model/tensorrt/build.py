@@ -11,8 +11,8 @@ from segment_anything import (
 import torch
 import argparse
 import tensorrt as trt
-import pycuda.driver as cuda
-import pycuda.autoinit
+# import pycuda.driver as cuda
+# import pycuda.autoinit
 
 DEVICE = torch.device("cuda" if torch.cuda.is_available() else "cpu")
 
@@ -61,14 +61,13 @@ if __name__ == "__main__":
     dummy_input = torch.randn(1, 3, 1024, 1024)
     dummy_input = dummy_input.to(DEVICE)
     
-    import ipdb; ipdb.set_trace()
-
     # export to ONNX
     input_names=["input"]
     output_names=["image_embedding"]
-    with torch.no_grad():
+    onnx_path = f"{args.checkpoint}/sam_{args.model_type}_embedding.onnx"
+    if not os.path.exists(onnx_path):
         torch.onnx.export(model, dummy_input,
-                            f"{args.checkpoint}/sam_{args.model_type}_embedding.onnx",
+                            onnx_path,
                             input_names=input_names, output_names=output_names, opset_version=17)
 
 
