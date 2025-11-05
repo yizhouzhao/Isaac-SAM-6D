@@ -14,6 +14,8 @@ from typing import Any, Dict, List, Optional, Tuple
 import cv2
 import torch.nn.functional as F
 
+from predictor import ModifiedSamPredictor
+
 from segment_anything.utils.amg import (
     MaskData,
     area_from_rle,
@@ -82,7 +84,7 @@ class ModifiedSamAutomaticMaskGenerator(SamAutomaticMaskGenerator):
         if min_mask_region_area > 0:
             import cv2  # type: ignore # noqa: F401
 
-        self.predictor = SamPredictor(sam)
+        self.predictor = ModifiedSamPredictor(sam)
         self.points_per_batch = points_per_batch
         self.pred_iou_thresh = pred_iou_thresh
         self.stability_score_thresh = stability_score_thresh
