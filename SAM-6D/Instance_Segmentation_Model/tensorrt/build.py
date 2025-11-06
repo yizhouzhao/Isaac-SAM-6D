@@ -66,9 +66,13 @@ if __name__ == "__main__":
     output_names=["image_embedding"]
     onnx_path = f"{args.checkpoint}/sam_{args.model_type}_embedding.onnx"
     if not os.path.exists(onnx_path):
-        torch.onnx.export(model, dummy_input,
-                            onnx_path,
-                            input_names=input_names, output_names=output_names, opset_version=17)
+        torch.onnx.export(model, 
+                        dummy_input,
+                        onnx_path,
+                        input_names=input_names, 
+                        output_names=output_names, 
+                        dynamic_axes={"input": {0: "batch"}, "image_embeddings": {0: "batch"}},
+                        opset_version=17)
 
 
     # export to TensorRT

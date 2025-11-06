@@ -33,6 +33,7 @@ def load_detector():
         box_nms_thresh=0.7,
         segmentor_width_size=640,
         pred_iou_thresh=0.88,
+        trt_model_path="./checkpoints/segment-anything/sam_vit_h_embedding.trt",
     )
 
     return segmentor_model

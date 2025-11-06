@@ -1,3 +1,5 @@
+import os
+
 from segment_anything import (
     sam_model_registry,
     SamPredictor,
@@ -9,7 +11,6 @@ import logging
 import numpy as np
 import torch
 from torchvision.ops.boxes import batched_nms, box_area  # type: ignore
-import os.path as osp
 from typing import Any, Dict, List, Optional, Tuple
 import cv2
 import torch.nn.functional as F
@@ -35,6 +36,8 @@ from segment_anything.utils.amg import (
     uncrop_points,
 )
 
+import tensorrt as trt
+import utils
 
 
 class ModifiedSamAutomaticMaskGenerator(SamAutomaticMaskGenerator):
@@ -55,8 +58,7 @@ class ModifiedSamAutomaticMaskGenerator(SamAutomaticMaskGenerator):
         output_mode: str = "binary_mask",
         points_per_side: Optional[int] = 32,
         point_grids: Optional[List[np.ndarray]] = None,
-        
-        
+        trt_model_path: Optional[str] = None,
     ):
 
         assert (points_per_side is None) != (
@@ -99,6 +101,23 @@ class ModifiedSamAutomaticMaskGenerator(SamAutomaticMaskGenerator):
 
         self.segmentor_width_size = segmentor_width_size
         logging.info(f"Init CustomSamAutomaticMaskGenerator done!")
+
+        self.use_tensorrt = False if trt_model_path is None else True
+        if trt_model_path is not None:
+            # load tensorrt model for image encoder
+            TRT_LOGGER = trt.Logger()
+            runtime = trt.Runtime(TRT_LOGGER)
+
+            if not os.path.isfile(trt_model_path):
+                raise FileNotFoundError(f"Could not find model in path\n{trt_model_path}")
+            with open(trt_model_path, "rb") as f:
+                serialized_engine = f.read()
+
+            engine = runtime.deserialize_cuda_engine(serialized_engine)
+            self.context = engine.create_execution_context()
+
+            self.inputs, self.outputs, self.bindings, self.stream = utils.allocate_buffers(engine, max_batch_size=1)
+
 
     def preprocess_resize(self, image: np.ndarray):
         orig_size = image.shape[:2]
@@ -191,7 +210,15 @@ class ModifiedSamAutomaticMaskGenerator(SamAutomaticMaskGenerator):
         x0, y0, x1, y1 = crop_box
         cropped_im = image[y0:y1, x0:x1, :]
         cropped_im_size = cropped_im.shape[:2]
-        self.predictor.set_image(cropped_im)
+
+        if self.use_tensorrt:
+            embeddings = self.get_image_embedding_tensorrt(cropped_im)
+        else:
+            embeddings = None
+
+        import ipdb; ipdb.set_trace()
+
+        self.predictor.set_image(cropped_im, embeddings=embeddings)
 
         # Get points for this crop
         points_scale = np.array(cropped_im_size)[None, ::-1]
@@ -219,4 +246,22 @@ class ModifiedSamAutomaticMaskGenerator(SamAutomaticMaskGenerator):
         data["points"] = uncrop_points(data["points"], crop_box)
         data["crop_boxes"] = torch.tensor([crop_box for _ in range(len(data["rles"]))])
 
+        import ipdb; ipdb.set_trace()
+
         return data
+    
+    def get_image_embedding_tensorrt(self, image: np.ndarray):
+        pixel_mean = torch.tensor([123.675, 116.28, 103.53])
+        pixel_std = torch.tensor([58.395, 57.12, 57.375])
+        img_size = 1024
+        input_for_tensorrt = utils.preprocess_image(image, 1024, "cpu", pixel_mean, pixel_std, img_size)
+
+        utils.load_img_to_input_buffer(input_for_tensorrt, pagelocked_buffer=self.inputs[0].host)
+        import ipdb; ipdb.set_trace()
+        [output] = utils.do_inference_v3(self.context, inputs=self.inputs, outputs=self.outputs,
+                                         stream=self.stream)
+
+
+        output = output.reshape((1, 256, 64, 64))
+
+        return torch.tensor(output).to(self.predictor.device)

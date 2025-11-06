@@ -105,6 +105,17 @@ def do_inference_v2(context, bindings, inputs, outputs, stream):
     # Return only the host outputs.
     return [out.host for out in outputs]
 
+def do_inference_v3(context, inputs, outputs, stream):
+    # Transfer input data to the GPU.
+    [cuda.memcpy_htod_async(inp.device, inp.host, stream) for inp in inputs]
+    # Run inference.
+    context.execute_async_v3(stream_handle=stream.handle)
+    # Transfer predictions back from the GPU.
+    [cuda.memcpy_dtoh_async(out.host, out.device, stream) for out in outputs]
+    # Synchronize the stream
+    stream.synchronize()
+    # Return only the host outputs.
+    return [out.host for out in outputs]
 
 def do_inference_v2_ensemble(context1, context2, bindings, inputs, outputs, stream):
     # Transfer input data to the GPU.
@@ -131,16 +142,16 @@ def allocate_buffers(engine, max_batch_size):
     bindings = []
     stream = cuda.Stream()
     for binding in engine:
-        size = trt.volume(engine.get_binding_shape(binding)) * max_batch_size
-        if size < 0 and engine.binding_is_input(binding):
+        size = trt.volume(engine.get_tensor_shape(binding)) * max_batch_size
+        if size < 0 and engine.get_tensor_mode(binding) == trt.TensorIOMode.INPUT:
             size = trt.volume(engine.get_profile_shape(0, binding)[2]) * max_batch_size
-        dtype = trt.nptype(engine.get_binding_dtype(binding))
+        dtype = trt.nptype(engine.get_tensor_dtype(binding))
         # Allocate host and device buffers
         host_mem = cuda.pagelocked_empty(size, dtype)
         device_mem = cuda.mem_alloc(host_mem.nbytes)
         # Append the device buffer to device bindings.
         bindings.append(int(device_mem))
-        if engine.binding_is_input(binding):
+        if engine.get_tensor_mode(binding) == trt.TensorIOMode.INPUT:
             inputs.append(HostDeviceMem(host_mem, device_mem))
         else:
             outputs.append(HostDeviceMem(host_mem, device_mem))

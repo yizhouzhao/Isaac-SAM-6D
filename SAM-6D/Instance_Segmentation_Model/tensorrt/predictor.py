@@ -11,19 +11,12 @@ from segment_anything.modeling import Sam
 
 from typing import Optional, Tuple
 
-import tensorrt as trt
-import torch
-import os
-
 from segment_anything.utils.transforms import ResizeLongestSide
-
-from utils import allocate_buffers
 
 class ModifiedSamPredictor:
     def __init__(
         self,
         sam_model: Sam,
-        trt_model_path: Optional[str] = None,
     ) -> None:
         """
         Uses SAM to calculate the image embedding for an image, and then
@@ -37,22 +30,6 @@ class ModifiedSamPredictor:
         self.model = sam_model
         self.transform = ResizeLongestSide(sam_model.image_encoder.img_size)
         self.reset_image()
-
-        if trt_model_path is not None:
-            # load tensorrt model for image encoder
-            TRT_LOGGER = trt.Logger()
-            runtime = trt.Runtime(TRT_LOGGER)
-
-            if not os.path.isfile(trt_model_path):
-                raise FileNotFoundError(f"Could not find model in path\n{trt_model_path}")
-            with open(trt_model_path, "rb") as f:
-                serialized_engine = f.read()
-
-            engine = runtime.deserialize_cuda_engine(serialized_engine)
-            self.context = engine.create_execution_context()
-
-            self.inputs, self.outputs, self.bindings, self.stream = allocate_buffers(engine, max_batch_size=1)
-
 
     def set_image_tensorrt(self, image):
         pass
@@ -120,6 +97,8 @@ class ModifiedSamPredictor:
         else:
             input_image = self.model.preprocess(transformed_image)
             self.features = self.model.image_encoder(input_image)
+
+        import ipdb; ipdb.set_trace()
         self.is_image_set = True
 
     def predict(
