@@ -106,7 +106,7 @@ if __name__ == "__main__":
     ## FIXME: uncomment to build and save the engine
     # Build the engine
     serialized_engine = builder.build_serialized_network(network, config)
-    engine_path = f"{args.checkpoint}/sam_{args.model_type}_embedding.trt"
+    engine_path = f"{args.checkpoint}/sam_{args.model_type}_embedding" + ("_fp16.trt" if args.fp16 else ".trt")
     with open(engine_path, "wb") as f:
          f.write(serialized_engine)
     print(f"TensorRT engine saved to {engine_path}")

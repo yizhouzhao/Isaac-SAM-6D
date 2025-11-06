@@ -1,5 +1,6 @@
 import os
 
+from matplotlib.style import context
 from segment_anything import (
     sam_model_registry,
     SamPredictor,
@@ -37,7 +38,9 @@ from segment_anything.utils.amg import (
 )
 
 import tensorrt as trt
-import utils
+from utils import preprocess_image
+import pycuda.driver as cuda
+import pycuda.autoinit
 
 
 class ModifiedSamAutomaticMaskGenerator(SamAutomaticMaskGenerator):
@@ -116,7 +119,27 @@ class ModifiedSamAutomaticMaskGenerator(SamAutomaticMaskGenerator):
             engine = runtime.deserialize_cuda_engine(serialized_engine)
             self.context = engine.create_execution_context()
 
-            self.inputs, self.outputs, self.bindings, self.stream = utils.allocate_buffers(engine, max_batch_size=1)
+            
+            tensor_names = [engine.get_tensor_name(i) for i in range(engine.num_io_tensors)]
+            self.input_buffer = {}
+            self.input_memory = {}
+            self.output_buffer = {}
+            self.output_memory = {}
+            for tensor in tensor_names:
+                size = trt.volume(self.context.get_tensor_shape(tensor))
+                dtype = trt.nptype(engine.get_tensor_dtype(tensor))
+                print(f"Tensor: {tensor}, Size: {size}, Dtype: {dtype}, Mode: {engine.get_tensor_mode(tensor)}")
+
+                if engine.get_tensor_mode(tensor) == trt.TensorIOMode.INPUT:
+                    self.context.set_input_shape(tensor, (1, 3, 1024, 1024))
+                    self.input_buffer[tensor] = cuda.pagelocked_empty(size, dtype)
+                    self.input_memory[tensor] = cuda.mem_alloc(self.input_buffer[tensor].nbytes)
+                    self.context.set_tensor_address(tensor, int(self.input_memory[tensor]))
+                else: # OUTPUT
+                    self.output_buffer[tensor] = cuda.pagelocked_empty(size, dtype)
+                    self.output_memory[tensor] = cuda.mem_alloc(self.output_buffer[tensor].nbytes)
+                    self.context.set_tensor_address(tensor, int(self.output_memory[tensor]))
+
 
 
     def preprocess_resize(self, image: np.ndarray):
@@ -216,8 +239,6 @@ class ModifiedSamAutomaticMaskGenerator(SamAutomaticMaskGenerator):
         else:
             embeddings = None
 
-        import ipdb; ipdb.set_trace()
-
         self.predictor.set_image(cropped_im, embeddings=embeddings)
 
         # Get points for this crop
@@ -246,22 +267,23 @@ class ModifiedSamAutomaticMaskGenerator(SamAutomaticMaskGenerator):
         data["points"] = uncrop_points(data["points"], crop_box)
         data["crop_boxes"] = torch.tensor([crop_box for _ in range(len(data["rles"]))])
 
-        import ipdb; ipdb.set_trace()
-
         return data
     
     def get_image_embedding_tensorrt(self, image: np.ndarray):
         pixel_mean = torch.tensor([123.675, 116.28, 103.53])
         pixel_std = torch.tensor([58.395, 57.12, 57.375])
         img_size = 1024
-        input_for_tensorrt = utils.preprocess_image(image, 1024, "cpu", pixel_mean, pixel_std, img_size)
+        input_for_tensorrt = preprocess_image(image, 1024, "cpu", pixel_mean, pixel_std, img_size)
 
-        utils.load_img_to_input_buffer(input_for_tensorrt, pagelocked_buffer=self.inputs[0].host)
-        import ipdb; ipdb.set_trace()
-        [output] = utils.do_inference_v3(self.context, inputs=self.inputs, outputs=self.outputs,
-                                         stream=self.stream)
+        # run inference
+        stream = cuda.Stream()
+        # Copy input to pagelocked buffer
+        np.copyto(self.input_buffer["input"], np.ascontiguousarray(input_for_tensorrt.cpu().numpy().astype(np.float32).ravel()))
 
-
-        output = output.reshape((1, 256, 64, 64))
+        cuda.memcpy_htod_async(self.input_memory["input"], self.input_buffer["input"], stream)
+        self.context.execute_async_v3(stream_handle=stream.handle)
+        cuda.memcpy_dtoh_async(self.output_buffer["image_embedding"], self.output_memory["image_embedding"], stream)
+        stream.synchronize()
+        output = self.output_buffer["image_embedding"].reshape((1, 256, 64, 64))
 
         return torch.tensor(output).to(self.predictor.device)

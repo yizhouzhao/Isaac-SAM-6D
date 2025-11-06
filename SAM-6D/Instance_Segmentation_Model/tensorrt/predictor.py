@@ -98,7 +98,6 @@ class ModifiedSamPredictor:
             input_image = self.model.preprocess(transformed_image)
             self.features = self.model.image_encoder(input_image)
 
-        import ipdb; ipdb.set_trace()
         self.is_image_set = True
 
     def predict(

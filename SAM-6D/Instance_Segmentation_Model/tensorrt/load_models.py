@@ -17,7 +17,7 @@ pretrained_weight_dict = {
     "vit_h": "sam_vit_h_4b8939.pth",  # 2500MB
 }
 
-def load_detector():
+def load_detector(use_fp16: bool = False):
     model_type="vit_h"
     checkpoint_dir="./checkpoints/segment-anything/"
 
@@ -33,7 +33,7 @@ def load_detector():
         box_nms_thresh=0.7,
         segmentor_width_size=640,
         pred_iou_thresh=0.88,
-        trt_model_path="./checkpoints/segment-anything/sam_vit_h_embedding.trt",
+        trt_model_path=f"./checkpoints/segment-anything/sam_{model_type}_embedding.trt",
     )
 
     return segmentor_model
@@ -87,7 +87,11 @@ if __name__ == "__main__":
     segmentor_model = load_detector()
     print("Loaded segmentor model:", segmentor_model)
 
+    import time
+    start_time = time.time()
     detections = segmentor_model.generate_masks(np.array(rgb))
     print("Generated masks:", len(detections))
+    end_time = time.time()
+    print("Inference time:", end_time - start_time)
 
     import ipdb; ipdb.set_trace()
