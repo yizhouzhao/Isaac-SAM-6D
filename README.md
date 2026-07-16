@@ -13,10 +13,12 @@ uv pip install -r requirements.txt
 
 PointNet2
 ```bash
-cd SAM-6D
-cd Pose_Estimation_Model/model/pointnet2
-python setup.py install
-cd ../../../
+# cd SAM-6D
+# cd Pose_Estimation_Model/model/pointnet2
+# python setup.py install
+# cd ../../../
+
+python -m pip install -v /home/yizhou/Projects/Isaac-SAM-6D/SAM-6D/Pose_Estimation_Model/model/pointnet2
 ```
 
 Download models
@@ -127,6 +129,8 @@ Blender render
 ```bash
 # both CAD (.ply) and  OBJ file should be provided
 blenderproc run ./Render/render_obj_templates.py --output_dir $OUTPUT_DIR --obj_path $OBJ_PATH --ply_path $CAD_PATH
+
+# blenderproc run --custom-blender-path /home/yizhou/.cache/blenderproc/blender/blender-4.2.1-linux-x64 ./Render/render_obj_templates.py --output_dir "$OUTPUT_DIR" --obj_path "$OBJ_PATH" --ply_path "$CAD_PATH"
 ```
 
 Instance Segmentation

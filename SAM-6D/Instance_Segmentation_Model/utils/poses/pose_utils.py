@@ -1,7 +1,7 @@
 import os
 import numpy as np
 import pathlib
-from ...utils.inout import get_root_project
+from ..inout import get_root_project
 from scipy.spatial.transform import Rotation
 import torch
 from torch import nn
